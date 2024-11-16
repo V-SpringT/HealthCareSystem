@@ -1,58 +1,96 @@
-import connect from './DB/connect.js'
+import connect from './DB/connect.js';
 
-const PORT = 3484;	
-import http from 'http'
-				
+const PORT = 3484;
+import http from 'http';
+
 import { Server } from 'socket.io';
-var app = http.createServer();					
-var io = new Server(app,{
+
+var app = http.createServer();
+var io = new Server(app, {
     cors: {
-    origin: "http://localhost:3000",
-    methods: ["GET", "POST"],
-    credentials: true
-  }
-});				
-app.listen(PORT);									
-console.log("Server nodejs chay tai dia chi: " + "localhost" + ":" + PORT)
-// connect() 
+        origin: "http://localhost:3000",
+        methods: ["GET", "POST"],
+        credentials: true,
+    },
+});
 
+app.listen(PORT);
+console.log(`Server đang chạy tại địa chỉ: http://localhost:${PORT}`);
+// connect()
 
-//giải nén chuỗi JSON thành các OBJECT
-function ParseJson(jsondata) {
-    try {
-        return JSON.parse(jsondata);
-    } catch (error) {
-        return null;
+// Trạng thái và interval
+let statuses = {
+    heart: true,
+    temperature: true,
+    signal: true,
+    exam: false,
+};
+
+let intervals = {
+    heart: null,
+    temperature: null,
+    signal: null,
+    examination: null,
+};
+
+// Khởi tạo interval
+function startInterval(event, io) {
+    if (intervals[event] || !statuses[event]) return;
+
+    let counter = 0;
+    const intervalTime = { heart: 5000, temperature: 6000, signal: 7000, examination: 5000 };
+
+    intervals[event] = setInterval(() => {
+        let payload;
+        if (event === 'examination') {
+            payload = {
+                heart: 60 + counter,
+                temperature: 30 + counter,
+            };
+        } else {
+            payload = {
+                title: `${event} ${counter}`,
+                message: `server-time Lần thứ ${counter}`,
+                type: `chủ đề ${counter}`,
+            };
+        }
+        io.sockets.emit(event, payload);
+        counter++;
+    }, intervalTime[event]);
+}
+
+// Dừng interval
+function stopInterval(event) {
+    if (intervals[event]) {
+        clearInterval(intervals[event]);
+        intervals[event] = null;
     }
 }
 
-function sendTime() {
-	
-	//Đây là một chuỗi JSON
-	var json = {
-				
-    }
-    // io.sockets.emit('atime', json);
-}
- 
-io.on('connection', function(socket) {	
-    console.log("Connected"); //In ra màn hình console là đã có một Socket Client kết nối thành công.
-	
-	//Gửi đi lệnh 'welcome' với một tham số là một biến JSON. Trong biến JSON này có một tham số và tham số đó tên là message. Kiểu dữ liệu của tham số là một chuối.
-    socket.emit('welcome', {
-        message: 'Connected !!!!'
-    });
-	
-	
-    socket.on('atime', function(data) {
-        console.log("----------------------Data ESP8266-----------------")
-        console.log(data);
-    });
-    let i=0;
-    setInterval(() => {
-        console.log("GIA TRI i: "+{i})
-        io.sockets.emit('welcome', {title: "title "+i,message : 'server-time Lan thu '+ i,type: "chu de " + i});
-        i+=1
-    }, 5000); // Mỗi 3 giây
+io.on('connection', (socket) => {
+    console.log("Client đã kết nối");
 
+    // Nhận trạng thái cập nhật từ client
+    socket.on('updateStatus', (data) => {
+        console.log("Nhận trạng thái cập nhật:", data);
+
+        Object.keys(data).forEach(event => {
+            if (statuses[event] !== data[event]) {
+                statuses[event] = data[event];
+                if (data[event]) startInterval(event, io);
+                else stopInterval(event);
+            }
+        });
+    });
+
+    // Dừng tất cả intervals khi client ngắt kết nối
+    socket.on('disconnect', () => {
+        console.log("Client đã ngắt kết nối");
+        Object.keys(statuses).forEach(event => stopInterval(event));
+    });
+
+    // Khởi tạo interval nếu trạng thái ban đầu là true
+    Object.keys(statuses).forEach(event => {
+        if (statuses[event]) startInterval(event, io);
+    });
 });
